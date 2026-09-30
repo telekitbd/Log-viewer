@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Log viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f5f8;
+    --surface: #ffffff;
+    --gutter: #eef1f5;
+    --ink: #1b2430;
+    --muted: #66717f;
+    --line: #dde2e9;
+    --accent: #2456c9;
+    --accent-soft: rgba(36, 86, 201, .13);
+    --mark: #ffe58a;
+    --mark-ink: #1b2430;
+    --c-error: #c62d3a;
+    --c-warn: #b97a00;
+    --c-info: #2a6fb5;
+    --c-debug: #7b8794;
+    --c-other: #a4adb8;
+    --t-error: rgba(198, 45, 58, .07);
+    --t-warn: rgba(185, 122, 0, .08);
+    --ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --row: 22px;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f131a; --surface: #151a22; --gutter: #1b212b; --ink: #dce3ec; --muted: #8b97a7;
+      --line: #262e3a; --accent: #7ba3ff; --accent-soft: rgba(123, 163, 255, .16);
+      --mark: #d1a400; --mark-ink: #0f131a;
+      --c-error: #ff6b78; --c-warn: #e7b54a; --c-info: #6fb1ff; --c-debug: #8b97a7; --c-other: #5d6876;
+      --t-error: rgba(255, 107, 120, .09); --t-warn: rgba(231, 181, 74, .09);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f131a; --surface: #151a22; --gutter: #1b212b; --ink: #dce3ec; --muted: #8b97a7;
+    --line: #262e3a; --accent: #7ba3ff; --accent-soft: rgba(123, 163, 255, .16);
+    --mark: #d1a400; --mark-ink: #0f131a;
+    --c-error: #ff6b78; --c-warn: #e7b54a; --c-info: #6fb1ff; --c-debug: #8b97a7; --c-other: #5d6876;
+    --t-error: rgba(255, 107, 120, .09); --t-warn: rgba(231, 181, 74, .09);
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: var(--ui); font-size: 14px; display: flex; flex-direction: column;
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  .file-meta { color: var(--muted); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 160px; }
+  .file-meta b { color: var(--ink); font-weight: 500; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+
+  .btn {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-weight: 500; font-size: 13px; line-height: 1.3;
+  }
+  .btn:hover { background: var(--gutter); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  :root[data-theme="dark"] .btn.primary { color: #0f131a; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #0f131a; } }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn[hidden] { display: none; }
+
+  .toolbar {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .search { flex: 1 1 240px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 0 6px 0 10px; }
+  .search:focus-within { border-color: var(--accent); }
+  .search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 7px 0; outline: none; font-family: var(--mono); font-size: 13px; }
+  .search.bad { border-color: var(--c-error); }
+  .tog { border: 0; background: transparent; cursor: pointer; border-radius: 4px; padding: 3px 6px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .tog[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface);
+    border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 12.5px;
+  }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); display: inline-block; }
+  .chip span { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chip[aria-pressed="false"] { opacity: .45; }
+  .chip[aria-pressed="false"] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+
+  main { flex: 1; min-height: 0; position: relative; display: flex; }
+
+  /* empty state */
+  .empty { margin: auto; width: min(680px, 100% - 32px); padding: 20px 0; overflow: auto; max-height: 100%; }
+  .drop {
+    border: 2px dashed var(--line); border-radius: 10px; padding: 34px 20px; text-align: center; background: var(--surface);
+    transition: border-color .15s, background .15s;
+  }
+  .drop.over, body.dragging .drop { border-color: var(--accent); background: var(--accent-soft); }
+  .drop h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  .drop p { margin: 0 0 16px; color: var(--muted); }
+  .paste { margin-top: 16px; }
+  .paste label { display: block; font-weight: 500; margin-bottom: 6px; }
+  .paste textarea {
+    width: 100%; height: 130px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); padding: 10px; font-family: var(--mono); font-size: 12.5px;
+  }
+  .paste .btn { margin-top: 8px; }
+
+  /* viewer */
+  #viewer { flex: 1; overflow: auto; background: var(--surface); position: relative; font-family: var(--mono); font-size: 12.5px; }
+  #spacer { position: relative; min-width: 100%; }
+  #rows { position: absolute; left: 0; top: 0; min-width: 100%; width: max-content; }
+  .row { display: block; height: var(--row); line-height: var(--row); white-space: pre; min-width: 100%; }
+  .row.lvl-error { background: var(--t-error); }
+  .row.lvl-warn { background: var(--t-warn); }
+  .row.sel { background: var(--accent-soft); }
+  .ln {
+    position: sticky; left: 0; z-index: 1; display: inline-block; width: 64px; text-align: right; padding-right: 10px; margin-right: 12px;
+    background: var(--gutter); color: var(--muted); cursor: pointer; user-select: none; -webkit-user-select: none;
+    box-shadow: inset 3px 0 0 var(--c, var(--c-other)); font-variant-numeric: tabular-nums;
+  }
+  .ln:hover { color: var(--ink); }
+  .row.sel .ln { color: var(--accent); font-weight: 500; }
+  .row.lvl-error { --c: var(--c-error); } .row.lvl-warn { --c: var(--c-warn); } .row.lvl-info { --c: var(--c-info); }
+  .row.lvl-debug { --c: var(--c-debug); } .row.lvl-other { --c: var(--c-other); }
+  .tx { padding-right: 24px; }
+  mark { background: var(--mark); color: var(--mark-ink); border-radius: 2px; }
+  .none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; text-align: center; padding: 20px; }
+
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: var(--surface); padding: 6px 12px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+  .pwtog { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; font-weight: 500; }
+  .pwtog[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+  #accView { flex: 1; overflow: auto; background: var(--surface); position: relative; }
+  #accSpacer { position: relative; }
+  #accRows { position: absolute; left: 0; right: 0; top: 0; }
+  .arow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 6px 16px; max-width: 920px; margin: 0 auto; }
+  .ai { flex: 0 0 40px; text-align: right; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .cred {
+    flex: 1 1 0; min-width: 0; height: 32px; padding: 0 12px; text-align: left; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+    font-family: var(--mono); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cred:hover { border-color: var(--accent); }
+  .cred:active { background: var(--accent-soft); }
+  .cred.pass { letter-spacing: .02em; }
+  .cred.copied { background: var(--accent); border-color: var(--accent); color: #fff; font-family: var(--ui); font-weight: 500; }
+  :root[data-theme="dark"] .cred.copied { color: #0f131a; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cred.copied { color: #0f131a; } }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 14px 0 0; }
+  .hint pre { display: inline-block; text-align: left; margin: 8px 0 0; padding: 8px 12px; background: var(--bg); border-radius: 6px; font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+
+  footer {
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 7px 16px; background: var(--surface);
+    border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px;
+  }
+  footer .grow { flex: 1; }
+  footer .lnk { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 12.5px; }
+  footer .lnk:hover { text-decoration: underline; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 8px);
+    background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { #toast, .drop { transition: none; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Log viewer</h1>
+  <div class="file-meta" id="fileMeta" hidden></div>
+  <div class="actions" id="actions" hidden>
+    <button class="btn primary" id="copyMain" type="button">Copy all</button>
+    <button class="btn" id="copyAll" type="button" hidden>Copy all</button>
+    <button class="btn" id="clearBtn" type="button">Clear</button>
+  </div>
+</header>
+
+<div class="toolbar" id="toolbar" hidden>
+  <div class="search" id="searchBox">
+    <input id="q" type="search" placeholder="Search lines" aria-label="Search lines" autocomplete="off" spellcheck="false">
+    <button class="tog" id="togCase" type="button" aria-pressed="false" title="Match case">Aa</button>
+    <button class="tog" id="togRe" type="button" aria-pressed="false" title="Regular expression">.*</button>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<main id="main">
+  <section class="empty" id="empty">
+    <div class="drop" id="drop">
+      <h2>Drop a .txt or .log file here</h2>
+      <p>The file is read in your browser and is not uploaded anywhere.</p>
+      <button class="btn primary" id="pick" type="button">Choose file</button>
+      <div class="hint">Files with username and password pairs open as an account list, where one click copies the username or password.<br>
+      <pre>U: example@email.com
+P: your-password</pre></div>
+    </div>
+    <div class="paste">
+      <label for="pasteBox">Or paste log text</label>
+      <textarea id="pasteBox" placeholder="Paste log lines here" spellcheck="false"></textarea>
+      <button class="btn" id="openPaste" type="button">View pasted text</button>
+    </div>
+  </section>
+
+  <div id="viewer" hidden tabindex="0" aria-label="Log lines">
+    <div id="spacer"><div id="rows"></div></div>
+    <div class="none" id="none" hidden>No lines match the current search and filters.</div>
+  </div>
+
+  <div id="accView" hidden aria-label="Accounts">
+    <div id="accSpacer"><div id="accRows"></div></div>
+    <div class="none" id="noneAcc" hidden>No usernames match your search.</div>
+  </div>
+</main>
+
+<footer id="footer" hidden>
+  <span id="count"></span>
+  <span id="selInfo"></span>
+  <span class="grow"></span>
+  <button class="lnk" id="clearSel" type="button" hidden>Clear selection</button>
+  <button class="lnk" id="goTop" type="button">Top</button>
+  <button class="lnk" id="goEnd" type="button">End</button>
+</footer>
+
+<input type="file" id="file" accept=".txt,.log,.out,.text,text/plain" hidden>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  const ROW = 22, OVERSCAN = 20;
+  const LEVELS = [
+    { id: 'error', label: 'Error' },
+    { id: 'warn',  label: 'Warn' },
+    { id: 'info',  label: 'Info' },
+    { id: 'debug', label: 'Debug' },
+    { id: 'other', label: 'Other' }
+  ];
+  const TOKEN = /\b(FATAL|CRITICAL|SEVERE|ERROR|ERR|WARNING|WARN|INFO|NOTICE|DEBUG|TRACE|VERBOSE)\b/i;
+  const TOKEN_MAP = { fatal:'error', critical:'error', severe:'error', error:'error', err:'error',
+    warning:'warn', warn:'warn', info:'info', notice:'info', debug:'debug', trace:'debug', verbose:'debug' };
+  const CONT = /^(\s+|at\s|Caused by:|\.\.\.\s\d+ more)/;
+
+  const $ = id => document.getElementById(id);
+  const el = { fileMeta: $('fileMeta'), actions: $('actions'), toolbar: $('toolbar'), empty: $('empty'),
+    viewer: $('viewer'), spacer: $('spacer'), rows: $('rows'), none: $('none'), footer: $('footer'),
+    count: $('count'), selInfo: $('selInfo'), clearSel: $('clearSel'), q: $('q'), searchBox: $('searchBox'),
+    chips: $('chips'), copyMain: $('copyMain'), copyAll: $('copyAll'), file: $('file'), drop: $('drop'),
+    toast: $('toast'), pasteBox: $('pasteBox'), accView: $('accView'), accSpacer: $('accSpacer'), accRows: $('accRows'), noneAcc: $('noneAcc') };
+
+  let lines = [];          // {n, text, lvl}
+  let view = [];           // filtered lines
+  let selected = new Set();
+  let lastClicked = null;
+  let activeLevels = new Set(LEVELS.map(l => l.id));
+  let counts = {};
+  let hlRe = null;
+  let caseSens = false, reMode = false;
+  let raf = 0, toastTimer = 0;
+  const AROW = 44;
+  let accounts = [], accShown = [], mode = 'log', showPw = true, copiedKey = '', copiedTimer = 0;
+
+  /* ---------- helpers ---------- */
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const fmtSize = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  const plural = (n, w) => n.toLocaleString() + ' ' + w + (n === 1 ? '' : 's');
+
+  function toast(msg) {
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.toast.classList.remove('show'), 1800);
+  }
+
+  async function copyText(text, msg) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) {}
+      ta.remove();
+      if (!ok) { toast('Copy failed. Select the text and press Ctrl+C.'); return; }
+    }
+    toast(msg);
+  }
+
+  /* ---------- loading ---------- */
+  function classify(raw) {
+    const out = new Array(raw.length);
+    let prev = 'other';
+    for (let i = 0; i < raw.length; i++) {
+      const t = raw[i];
+      const m = TOKEN.exec(t.length > 160 ? t.slice(0, 160) : t);
+      let lvl;
+      if (m) lvl = TOKEN_MAP[m[1].toLowerCase()];
+      else if (CONT.test(t) && prev !== 'other') lvl = prev;
+      else lvl = 'other';
+      prev = lvl;
+      out[i] = { n: i + 1, text: t, lvl };
+    }
+    return out;
+  }
+
+  function load(text, name, size) {
+    let raw = text.split(/\r?\n/);
+    if (raw.length && raw[raw.length - 1] === '') raw.pop();
+    if (!raw.length) { toast('That file has no lines.'); return; }
+    lines = classify(raw);
+    accounts = parseAccounts(raw);
+    counts = {};
+    LEVELS.forEach(l => counts[l.id] = 0);
+    lines.forEach(l => counts[l.lvl]++);
+    activeLevels = new Set(LEVELS.map(l => l.id));
+    selected.clear(); lastClicked = null;
+    el.q.value = '';
+    caseSens = false; reMode = false;
+    $('togCase').setAttribute('aria-pressed', 'false');
+    $('togRe').setAttribute('aria-pressed', 'false');
+
+    el.fileMeta.innerHTML = '<b>' + esc(name) + '</b> · ' + plural(lines.length, 'line') + (accounts.length ? ' · ' + plural(accounts.length, 'account') : '') + ' · ' + fmtSize(size);
+    el.fileMeta.hidden = false;
+    el.actions.hidden = false;
+    el.toolbar.hidden = false;
+    el.footer.hidden = false;
+    el.empty.hidden = true;
+    buildChips();
+    el.viewer.scrollTop = 0;
+    el.accView.scrollTop = 0;
+    setMode(accounts.length ? 'accounts' : 'log');
+  }
+
+  function reset() {
+    lines = []; view = []; selected.clear(); lastClicked = null;
+    el.fileMeta.hidden = true; el.actions.hidden = true; el.toolbar.hidden = true; el.footer.hidden = true;
+    el.viewer.hidden = true; el.accView.hidden = true; el.empty.hidden = false; accounts = []; accShown = [];
+    el.rows.innerHTML = ''; el.pasteBox.value = ''; el.file.value = '';
+  }
+
+  async function loadFile(f) {
+    if (!f) return;
+    try {
+      const text = await f.text();
+      load(text, f.name, f.size);
+    } catch (e) {
+      toast('Could not read that file.');
+    }
+  }
+
+  /* ---------- filtering ---------- */
+  function buildChips() {
+    el.chips.innerHTML = '';
+    LEVELS.forEach(l => {
+      if (!counts[l.id]) return;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.dataset.lvl = l.id;
+      b.style.setProperty('--c', 'var(--c-' + l.id + ')');
+      b.setAttribute('aria-pressed', 'true');
+      b.innerHTML = '<i></i>' + l.label + ' <span>' + counts[l.id].toLocaleString() + '</span>';
+      el.chips.appendChild(b);
+    });
+  }
+
+  function buildRegex() {
+    const q = el.q.value;
+    el.searchBox.classList.remove('bad');
+    if (!q) return { test: null, hl: null };
+    let src = q;
+    if (!reMode) src = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      const flags = caseSens ? '' : 'i';
+      return { test: new RegExp(src, flags), hl: new RegExp(src, 'g' + flags) };
+    } catch (e) {
+      el.searchBox.classList.add('bad');
+      return { test: null, hl: null };
+    }
+  }
+
+  function applyFilter() {
+    const { test, hl } = buildRegex();
+    hlRe = hl;
+    if (mode === 'accounts') {
+      accShown = test ? accounts.filter(a => test.test(a.user)) : accounts;
+      el.accSpacer.style.height = (accShown.length * AROW) + 'px';
+      el.noneAcc.hidden = accShown.length > 0;
+      renderAcc();
+      updateStatus();
+      return;
+    }
+    const allOn = activeLevels.size === LEVELS.length || LEVELS.every(l => !counts[l.id] || activeLevels.has(l.id));
+    if (!test && allOn) view = lines;
+    else view = lines.filter(l => activeLevels.has(l.lvl) && (!test || test.test(l.text)));
+    el.spacer.style.height = (view.length * ROW) + 'px';
+    el.none.hidden = view.length > 0;
+    render(true);
+    updateStatus();
+  }
+
+  function isFiltered() { return view.length !== lines.length; }
+
+  /* ---------- rendering (virtual list) ---------- */
+  function hlText(text) {
+    if (!hlRe) return esc(text);
+    hlRe.lastIndex = 0;
+    let out = '', last = 0, m;
+    while ((m = hlRe.exec(text))) {
+      if (!m[0].length) { hlRe.lastIndex++; continue; }
+      out += esc(text.slice(last, m.index)) + '<mark>' + esc(m[0]) + '</mark>';
+      last = m.index + m[0].length;
+    }
+    return out + esc(text.slice(last));
+  }
+
+  function render() {
+    raf = 0;
+    const v = el.viewer;
+    const top = v.scrollTop, h = v.clientHeight;
+    const start = Math.max(0, Math.floor(top / ROW) - OVERSCAN);
+    const end = Math.min(view.length, Math.ceil((top + h) / ROW) + OVERSCAN);
+    let html = '';
+    for (let i = start; i < end; i++) {
+      const l = view[i];
+      html += '<div class="row lvl-' + l.lvl + (selected.has(l.n) ? ' sel' : '') + '" data-n="' + l.n + '">' +
+        '<span class="ln" title="Click to select line">' + l.n + '</span><span class="tx">' + (l.text ? hlText(l.text) : ' ') + '</span></div>';
+    }
+    el.rows.style.transform = 'translateY(' + (start * ROW) + 'px)';
+    el.rows.innerHTML = html;
+  }
+
+  function schedule() { if (!raf) raf = requestAnimationFrame(mode === 'accounts' ? renderAcc : render); }
+
+  function updateStatus() {
+    if (mode === 'accounts') {
+      el.count.textContent = accShown.length !== accounts.length
+        ? 'Showing ' + accShown.length.toLocaleString() + ' of ' + plural(accounts.length, 'account')
+        : plural(accounts.length, 'account');
+      el.selInfo.textContent = '';
+      el.clearSel.hidden = true;
+      el.copyMain.hidden = true; el.copyAll.hidden = true;
+      return;
+    }
+    el.copyMain.hidden = false;
+    el.count.textContent = isFiltered()
+      ? 'Showing ' + view.length.toLocaleString() + ' of ' + plural(lines.length, 'line')
+      : plural(lines.length, 'line');
+    const s = selected.size;
+    el.selInfo.textContent = s ? plural(s, 'line') + ' selected' : '';
+    el.clearSel.hidden = !s;
+
+    if (s) el.copyMain.textContent = 'Copy ' + plural(s, 'selected line');
+    else if (isFiltered()) el.copyMain.textContent = 'Copy ' + plural(view.length, 'shown line');
+    else el.copyMain.textContent = 'Copy all';
+    el.copyAll.hidden = !(s || isFiltered());
+  }
+
+  /* ---------- selection & copy ---------- */
+  function selectLine(n, ev) {
+    if (ev.shiftKey && lastClicked != null) {
+      const a = view.findIndex(l => l.n === lastClicked), b = view.findIndex(l => l.n === n);
+      if (a > -1 && b > -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        if (!(ev.ctrlKey || ev.metaKey)) selected.clear();
+        for (let i = lo; i <= hi; i++) selected.add(view[i].n);
+      }
+    } else if (ev.ctrlKey || ev.metaKey) {
+      selected.has(n) ? selected.delete(n) : selected.add(n);
+      lastClicked = n;
+    } else {
+      // plain click toggles the line, so several lines can be picked without a modifier key
+      selected.has(n) ? selected.delete(n) : selected.add(n);
+      lastClicked = n;
+    }
+    render(); updateStatus();
+  }
+
+  function selectedText() {
+    return lines.filter(l => selected.has(l.n)).map(l => l.text).join('\n');
+  }
+
+  function copyPrimary() {
+    if (selected.size) copyText(selectedText(), 'Copied ' + plural(selected.size, 'line'));
+    else copyText(view.map(l => l.text).join('\n'), 'Copied ' + plural(view.length, 'line'));
+  }
+
+  /* ---------- accounts (username / password pairs) ---------- */
+  const RE_ONE = /^\s*(?:u|user|username|email|login)\s*[:=]\s*(\S+)\s+(?:p|pass|password|pwd|pw)\s*[:=]\s*(.*?)\s*$/i;
+  const RE_U = /^\s*(?:u|user|username|email|login)\s*[:=]\s*(.*?)\s*$/i;
+  const RE_P = /^\s*(?:p|pass|password|pwd|pw)\s*[:=]\s*(.*?)\s*$/i;
+
+  function parseAccounts(raw) {
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+      const one = RE_ONE.exec(raw[i]);
+      if (one) { out.push({ id: out.length + 1, user: one[1], pass: one[2] }); continue; }
+      const u = RE_U.exec(raw[i]);
+      if (!u) continue;
+      let j = i + 1;
+      while (j < raw.length && !raw[j].trim()) j++;
+      const p = j < raw.length ? RE_P.exec(raw[j]) : null;
+      if (p) { out.push({ id: out.length + 1, user: u[1], pass: p[1] }); i = j; }
+    }
+    return out;
+  }
+
+  function renderAcc() {
+    raf = 0;
+    const v = el.accView;
+    const top = v.scrollTop, h = v.clientHeight;
+    const start = Math.max(0, Math.floor(top / AROW) - 10);
+    const end = Math.min(accShown.length, Math.ceil((top + h) / AROW) + 10);
+    let html = '';
+    for (let i = start; i < end; i++) {
+      const a = accShown[i];
+      const cu = copiedKey === a.id + ':u', cp = copiedKey === a.id + ':p';
+      const pw = a.pass ? (showPw ? esc(a.pass) : '••••••••') : '(empty)';
+      html += '<div class="arow" data-i="' + i + '"><span class="ai">' + a.id + '</span>' +
+        '<button type="button" class="cred' + (cu ? ' copied' : '') + '" data-k="u" title="Click to copy username">' + (cu ? 'Copied' : hlText(a.user)) + '</button>' +
+        '<button type="button" class="cred pass' + (cp ? ' copied' : '') + '" data-k="p" title="Click to copy password">' + (cp ? 'Copied' : pw) + '</button></div>';
+    }
+    el.accRows.style.transform = 'translateY(' + (start * AROW) + 'px)';
+    el.accRows.innerHTML = html;
+  }
+
+  function setMode(m) {
+    mode = m;
+    const acc = m === 'accounts';
+    el.viewer.hidden = acc;
+    el.accView.hidden = !acc;
+    el.chips.hidden = acc;
+    el.q.placeholder = acc ? 'Search usernames' : 'Search lines';
+    applyFilter();
+    (acc ? el.accView : el.viewer).focus({ preventScroll: true });
+  }
+
+  /* ---------- events ---------- */
+  el.accView.addEventListener('scroll', schedule, { passive: true });
+  el.accRows.addEventListener('click', e => {
+    const b = e.target.closest('.cred');
+    if (!b) return;
+    const a = accShown[Number(b.parentNode.dataset.i)];
+    if (!a) return;
+    const k = b.dataset.k;
+    copyText(k === 'u' ? a.user : a.pass, k === 'u' ? 'Username copied' : 'Password copied');
+    copiedKey = a.id + ':' + k;
+    renderAcc();
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { copiedKey = ''; if (mode === 'accounts') renderAcc(); }, 1000);
+  });
+  el.viewer.addEventListener('scroll', schedule, { passive: true });
+  window.addEventListener('resize', schedule);
+
+  el.rows.addEventListener('click', e => {
+    const ln = e.target.closest('.ln');
+    if (!ln) return;
+    selectLine(Number(ln.parentNode.dataset.n), e);
+  });
+
+  el.chips.addEventListener('click', e => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    const id = b.dataset.lvl;
+    activeLevels.has(id) ? activeLevels.delete(id) : activeLevels.add(id);
+    b.setAttribute('aria-pressed', activeLevels.has(id));
+    applyFilter();
+  });
+
+  let deb = 0;
+  el.q.addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(applyFilter, 120); });
+  $('togCase').addEventListener('click', e => {
+    caseSens = !caseSens; e.currentTarget.setAttribute('aria-pressed', caseSens); applyFilter();
+  });
+  $('togRe').addEventListener('click', e => {
+    reMode = !reMode; e.currentTarget.setAttribute('aria-pressed', reMode); applyFilter();
+  });
+
+  el.copyMain.addEventListener('click', copyPrimary);
+  el.copyAll.addEventListener('click', () => copyText(lines.map(l => l.text).join('\n'), 'Copied ' + plural(lines.length, 'line')));
+  el.clearSel.addEventListener('click', () => { selected.clear(); render(); updateStatus(); });
+  $('clearBtn').addEventListener('click', reset);
+  $('pick').addEventListener('click', () => el.file.click());
+  $('goTop').addEventListener('click', () => { const c = mode === 'accounts' ? el.accView : el.viewer; c.scrollTop = 0; });
+  $('goEnd').addEventListener('click', () => { const c = mode === 'accounts' ? el.accView : el.viewer; c.scrollTop = c.scrollHeight; });
+  $('openPaste').addEventListener('click', () => {
+    const t = el.pasteBox.value;
+    if (!t.trim()) { toast('Paste some log text first.'); return; }
+    load(t, 'Pasted text', new Blob([t]).size);
+  });
+  el.file.addEventListener('change', () => loadFile(el.file.files[0]));
+
+  document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selected.size && !String(window.getSelection())) {
+      e.preventDefault();
+      copyText(selectedText(), 'Copied ' + plural(selected.size, 'line'));
+    } else if (e.key === 'Escape' && selected.size) {
+      selected.clear(); render(); updateStatus();
+    }
+  });
+
+  // drag and drop anywhere on the page
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+  window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dragging'); });
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+})();
+</script>
+</body>
+</html>

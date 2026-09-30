@@ -508,15 +508,23 @@ P: your-password</pre></div>
 
   function parseAccounts(raw) {
     const out = [];
+    const seen = new Set();
+    const add = (user, pass) => {
+      const key = JSON.stringify([user, pass]);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ id: out.length + 1, user, pass });
+    };
+
     for (let i = 0; i < raw.length; i++) {
       const one = RE_ONE.exec(raw[i]);
-      if (one) { out.push({ id: out.length + 1, user: one[1], pass: one[2] }); continue; }
+      if (one) { add(one[1], one[2]); continue; }
       const u = RE_U.exec(raw[i]);
       if (!u) continue;
       let j = i + 1;
       while (j < raw.length && !raw[j].trim()) j++;
       const p = j < raw.length ? RE_P.exec(raw[j]) : null;
-      if (p) { out.push({ id: out.length + 1, user: u[1], pass: p[1] }); i = j; }
+      if (p) { add(u[1], p[1]); i = j; }
     }
     return out;
   }
